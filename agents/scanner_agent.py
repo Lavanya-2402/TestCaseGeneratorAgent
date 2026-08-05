@@ -120,9 +120,9 @@ def main():
     kb = KBMerger.merge(
         repo=args.repo,
         ast_data=artifacts["ast"],
-        sarif_data_list=artifacts.get("sarif", []),
         structural_data=artifacts.get("structural", {})
     )
+
 
     files_count = sum(1 for n in kb.get('nodes', []) if n.get('type') == 'FILE')
     funcs_count = sum(1 for n in kb.get('nodes', []) if n.get('type') == 'FUNCTION')

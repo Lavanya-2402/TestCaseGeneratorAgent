@@ -16,7 +16,8 @@ class KBMerger:
     """
 
     @staticmethod
-    def merge(repo: str, ast_data: Dict[str, Any], structural_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def merge(repo: str, ast_data: Dict[str, Any], sarif_data_list: Optional[List[Dict]] = None, structural_data: Optional[Dict[str, Any]] = None, **kwargs) -> Dict[str, Any]:
+
         """
         Merges AST graph data and structural CodeQL data into the final KB Graph format.
 
