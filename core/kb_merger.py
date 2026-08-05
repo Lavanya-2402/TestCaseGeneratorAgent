@@ -1,13 +1,35 @@
+"""
+Knowledge Base Graph Merger Engine.
+
+Synthesizes Tree-sitter AST data with CodeQL structural metrics into a unified `kb.json` graph format.
+Performs class role classification (Controller, Service, Repository, Entity, Config, Component),
+resolves function call edges to exact target IDs, and attaches CodeQL method signatures and annotations.
+"""
+
 import json
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
 class KBMerger:
+    """
+    Graph synthesis merger for unifying Tree-sitter AST nodes/edges and CodeQL structural analysis output.
+    """
+
     @staticmethod
-    def merge(repo: str, ast_data: Dict[str, Any], sarif_data_list: Optional[List[Dict]] = None, structural_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Merge AST graph data, structural CodeQL data, and SARIF findings into the final KB Graph format."""
-        
+    def merge(repo: str, ast_data: Dict[str, Any], structural_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Merges AST graph data and structural CodeQL data into the final KB Graph format.
+
+        Args:
+            repo (str): Repository identifier (owner/repo).
+            ast_data (Dict[str, Any]): Parsed Tree-sitter AST dictionary (`nodes` and `edges`).
+            structural_data (Optional[Dict[str, Any]]): CodeQL structural dictionary (`signatures`, `calls`, `annotations`).
+
+        Returns:
+            Dict[str, Any]: Unified Knowledge Base graph dictionary ready for JSON serialization (`kb.json`).
+        """
         nodes = ast_data.get("nodes", [])
+
         edges = ast_data.get("edges", [])
         
         kb = {
@@ -47,7 +69,6 @@ class KBMerger:
                     node["class_role"] = "COMPONENT"
                 else:
                     node["class_role"] = "GENERAL"
-
 
         for node in nodes:
             if node["type"] == "FUNCTION":
@@ -100,11 +121,5 @@ class KBMerger:
                         "value": ann.get("element_value")
                     })
 
-        # 4. PAUSED: Process SARIF vulnerability data (commented out)
-        # if sarif_data_list:
-        #     for sarif in sarif_data_list:
-        #         for run in sarif.get("runs", []):
-        #             for result in run.get("results", []):
-        #                 ...
-
         return kb
+

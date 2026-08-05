@@ -1,3 +1,9 @@
+"""
+Repository ASCII Tree Builder Utility.
+
+Fetches the recursive Git tree from GitHub REST API and formats it into a visual ASCII directory tree (`repo_structure.txt`).
+"""
+
 import os
 import argparse
 import sys
@@ -7,9 +13,16 @@ from core.github_client import GitHubClient
 
 def build_tree_string(tree_data, prefix=""):
     """
-    Recursively builds a string representation of the git tree.
-    (This is a simplified version, as the GitHub API returns a flat list with full paths when recursive=1 is used).
+    Recursively transforms a flat list of GitHub git tree objects into a formatted ASCII tree string.
+
+    Args:
+        tree_data (list): Flat list of tree objects from GitHub Git Trees API (`path`, `type`).
+        prefix (str): Indentation prefix string for nested directories.
+
+    Returns:
+        str: Formatted ASCII directory tree string.
     """
+
     # Create a nested dictionary structure from the flat list
     file_tree = {}
     for item in tree_data:

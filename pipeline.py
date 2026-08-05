@@ -1,3 +1,13 @@
+"""
+End-to-End Automated Delta Testing Pipeline Orchestrator.
+
+This script manages the complete automated testing lifecycle for target GitHub repositories:
+1. State Management: Tracks commit SHAs to detect commit deltas.
+2. Phase 1: Executes Scanner Agent (AST & CodeQL Knowledge Base Extraction).
+3. Phase 2: Executes Tester Agent (Generates JUnit 5 & Excel test suites).
+4. Phase 3: Executes Jira Integration Agent (Pushes generated test plans to Jira).
+"""
+
 import os
 import sys
 import json
@@ -9,7 +19,12 @@ from dotenv import load_dotenv
 from core.github_client import GitHubClient
 
 def main():
+    """
+    Main pipeline entry point. Parses command line arguments, evaluates commit delta state,
+    and runs Scanner Agent, Tester Agent, and Jira Integration sequentially.
+    """
     parser = argparse.ArgumentParser(description="End-to-end Automated Delta Testing Pipeline")
+
     parser.add_argument('--repo', required=True, help="GitHub repo owner/name (e.g., supriya-daita/LibraryManagementSystem)")
     args = parser.parse_args()
 

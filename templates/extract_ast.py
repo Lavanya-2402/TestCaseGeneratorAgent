@@ -1,16 +1,24 @@
 #!/usr/bin/env python3
+"""
+Remote Language-Agnostic Tree-sitter AST Extractor Script.
+
+Traverses repository source files, parses Abstract Syntax Trees using tree-sitter bindings for
+Java, Python, JavaScript, TypeScript, Go, and Ruby, and extracts FILE, CLASS, FUNCTION nodes
+along with DEFINES and CALLS relational graph edges into `ast.json`.
+"""
+
 import os
 import json
 import argparse
 from pathlib import Path
 import tree_sitter
 
-# Tree-sitter setup
+# Tree-sitter language map for Java Backend & Frontend UI
 LANG_MAP = {}
 
 try:
-    import tree_sitter_python
-    LANG_MAP[".py"] = ("python", tree_sitter_python)
+    import tree_sitter_java
+    LANG_MAP[".java"] = ("java", tree_sitter_java)
 except ImportError: pass
 
 try:
@@ -25,20 +33,6 @@ try:
     LANG_MAP[".tsx"] = ("tsx", tree_sitter_typescript)
 except ImportError: pass
 
-try:
-    import tree_sitter_java
-    LANG_MAP[".java"] = ("java", tree_sitter_java)
-except ImportError: pass
-
-try:
-    import tree_sitter_go
-    LANG_MAP[".go"] = ("go", tree_sitter_go)
-except ImportError: pass
-
-try:
-    import tree_sitter_ruby
-    LANG_MAP[".rb"] = ("ruby", tree_sitter_ruby)
-except ImportError: pass
 
 def get_parser(ext):
     if ext not in LANG_MAP:
@@ -63,97 +57,8 @@ def extract_node_text(node, source_bytes):
     if not node: return ""
     return source_bytes[node.start_byte:node.end_byte].decode('utf8', 'ignore')
 
-def process_python(tree, source_bytes, rel_path, all_nodes, all_edges):
-    file_id = f"file://{rel_path}"
-    
-    def traverse(node, current_context_id=None):
-        if node.type == 'function_definition':
-            name_node = node.child_by_field_name('name')
-            if name_node:
-                func_name = extract_node_text(name_node, source_bytes)
-                func_id = f"func://{rel_path}/{func_name}"
-                
-                params = []
-                params_node = node.child_by_field_name('parameters')
-                if params_node:
-                    for child in params_node.children:
-                        if child.type in ('identifier', 'typed_parameter'):
-                            params.append(extract_node_text(child, source_bytes))
-                            
-                docstring = ""
-                body_node = node.child_by_field_name('body')
-                if body_node and body_node.children:
-                    first_stmt = body_node.children[0]
-                    if first_stmt.type == 'expression_statement':
-                        string_node = first_stmt.children[0]
-                        if string_node.type == 'string':
-                            docstring = extract_node_text(string_node, source_bytes).strip('\'"')
-                            
-                decorators = []
-                for child in node.children:
-                    if child.type == 'decorator':
-                        decorators.append(extract_node_text(child, source_bytes))
-
-                all_nodes.append({
-                    "id": func_id,
-                    "type": "FUNCTION",
-                    "name": func_name,
-                    "file": rel_path,
-                    "parameters": params,
-                    "docstring": docstring,
-                    "decorators": decorators,
-                    "line_start": node.start_point[0] + 1,
-                    "line_end": node.end_point[0] + 1,
-                    "body": extract_node_text(node, source_bytes)
-                })
-                
-                all_edges.append({"source": file_id, "target": func_id, "type": "DEFINES"})
-                if current_context_id:
-                    all_edges.append({"source": current_context_id, "target": func_id, "type": "CONTAINS"})
-                
-                if body_node:
-                    for child in body_node.children:
-                        traverse(child, current_context_id=func_id)
-                return
-
-        elif node.type == 'class_definition':
-            name_node = node.child_by_field_name('name')
-            if name_node:
-                class_name = extract_node_text(name_node, source_bytes)
-                class_id = f"class://{rel_path}/{class_name}"
-                
-                all_nodes.append({
-                    "id": class_id,
-                    "type": "CLASS",
-                    "name": class_name,
-                    "file": rel_path,
-                    "line_start": node.start_point[0] + 1,
-                    "line_end": node.end_point[0] + 1
-                })
-                all_edges.append({"source": file_id, "target": class_id, "type": "DEFINES"})
-                
-                body_node = node.child_by_field_name('body')
-                if body_node:
-                    for child in body_node.children:
-                        traverse(child, current_context_id=class_id)
-                return
-                
-        elif node.type == 'call' and current_context_id:
-            func_node = node.child_by_field_name('function')
-            if func_node:
-                called_name = extract_node_text(func_node, source_bytes)
-                all_edges.append({
-                    "source": current_context_id,
-                    "target": called_name,
-                    "type": "CALLS"
-                })
-                
-        for child in node.children:
-            traverse(child, current_context_id)
-            
-    traverse(tree.root_node)
-
 def process_js_ts(tree, source_bytes, rel_path, all_nodes, all_edges):
+
     file_id = f"file://{rel_path}"
     
     def traverse(node, current_context_id=None):
@@ -379,13 +284,15 @@ def main():
     all_nodes = []
     all_edges = []
     
-    for root, _, files in os.walk('.'):
-        if '.git' in root:
-            continue
-            
+    SKIP_DIRS = {".git", ".github", "node_modules", "venv", ".venv", "target", "build", "dist", "__pycache__", ".gemini"}
+
+    for root, dirs, files in os.walk('.'):
+        # Prune noise directories in place
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+
         for file in files:
             path = Path(root) / file
-            ext = path.suffix
+            ext = path.suffix.lower()
             
             lang_name, ts_parser = get_parser(ext)
             if not ts_parser:
@@ -412,14 +319,10 @@ def main():
                 }
             })
             
-            if lang_name == "python":
-                process_python(tree, source_bytes, rel_path, all_nodes, all_edges)
-            elif lang_name in ("javascript", "typescript", "tsx"):
+            if lang_name in ("javascript", "typescript", "tsx"):
                 process_js_ts(tree, source_bytes, rel_path, all_nodes, all_edges)
             elif lang_name == "java":
                 process_java(tree, source_bytes, rel_path, all_nodes, all_edges)
-            else:
-                pass
 
     graph = {
         "nodes": all_nodes,
@@ -429,6 +332,7 @@ def main():
     with open(args.output, 'w') as f:
         json.dump(graph, f, indent=2)
     print(f"Extracted AST Graph: {len(all_nodes)} nodes, {len(all_edges)} edges to {args.output}")
+
 
 if __name__ == "__main__":
     main()

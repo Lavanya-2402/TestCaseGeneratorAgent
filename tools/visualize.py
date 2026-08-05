@@ -1,9 +1,17 @@
+"""
+Knowledge Base Interactive Vis.js Graph Visualizer Tool.
+
+Reads `kb.json`, maps nodes and call edges into Vis.js dataset format, color-codes nodes by architectural role
+(Controller, Service, Repository, Entity, Config), and generates a standalone interactive HTML graph (`graph.html`).
+"""
+
 import sys
 import os
 import json
 import argparse
 
 HTML_TEMPLATE = """<!DOCTYPE html>
+
 <html>
 <head>
     <title>Knowledge Graph</title>

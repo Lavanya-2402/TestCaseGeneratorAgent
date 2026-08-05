@@ -1,3 +1,14 @@
+"""
+Phase 1: Code Knowledge Base Scanner Agent.
+
+Coordinates remote non-intrusive static analysis across target GitHub repositories:
+1. Injects GitHub Actions workflows (`kb-scanner.yml`) and tree-sitter scripts (`extract_ast.py`).
+2. Triggers remote workflow execution and polls status until completion.
+3. Downloads AST and CodeQL structural artifacts in-memory via GitHub REST API.
+4. Merges AST data, CodeQL method signatures, and class role annotations into `kb.json`.
+5. Renders interactive Vis.js architecture network graphs (`graph.html`).
+"""
+
 import os
 import sys
 import json
@@ -15,7 +26,7 @@ from core.kb_merger import KBMerger
 from tools.get_repo_structure import build_tree_string
 
 def load_env():
-    """Load variables from .env file into os.environ"""
+    """Reads environment variables from local `.env` file into `os.environ`."""
     env_path = Path(".env")
     if env_path.exists():
         with open(env_path, "r") as f:
@@ -26,8 +37,12 @@ def load_env():
                     os.environ[key.strip()] = val.strip()
 
 def main():
-    # Load .env file first
+    """
+    Main Scanner Agent entry point. Parses command line arguments, triggers remote scans,
+    fetches artifacts, builds Knowledge Base Graph (kb.json), and generates graph.html.
+    """
     load_env()
+
 
     parser = argparse.ArgumentParser(description="Code Knowledge Base Scanner")
     parser.add_argument("--repo", help="Target repository (owner/repo). Defaults to GITHUB_REPO env var.")
@@ -120,11 +135,6 @@ def main():
     with open(out_file, "w") as f:
         json.dump(kb, f, indent=2)
         
-    # PAUSED: Vulnerabilities report writing (commented out)
-    # vuln_out = out_dir / "vulnerabilities_report.json"
-    # with open(vuln_out, "w") as f:
-    #     json.dump(artifacts["sarif"], f, indent=2)
-        
     try:
         latest_sha = client.get_latest_commit(owner, repo)
         response = client.get(f"/repos/{owner}/{repo}/git/trees/{latest_sha}?recursive=1")
@@ -142,21 +152,20 @@ def main():
     # 6. Generate Visualization
     graph_out = out_dir / "graph.html"
     print(f"\nGenerating interactive Knowledge Graph visualization...")
-    subprocess.run(["python", "tools/visualize.py", "--input", str(out_file), "--output", str(graph_out)])
+    subprocess.run([sys.executable, "tools/visualize.py", "--input", str(out_file), "--output", str(graph_out)])
         
     print(f"\n[SUCCESS] KB Extraction and Visualization Complete!")
     print(f"Summary:")
     print(f"  Total Nodes: {kb['summary'].get('total_nodes', 0)}")
     print(f"  Total Edges: {kb['summary'].get('total_edges', 0)}")
-    print(f"  Vulnerabilities: {kb['summary'].get('total_vulnerabilities', 0)}")
     
     print(f"\nGenerated Files:")
     print(f"- Knowledge Base Data : {out_file}")
-    # PAUSED: print(f"- Vulnerabilities     : {vuln_out}")
     if tree_out:
         print(f"- Repo Structure      : {tree_out}")
     print(f"- Interactive Graph   : {graph_out}")
     print(f"\nOpen {graph_out.name} in your web browser to explore the architecture.")
+
 
 if __name__ == "__main__":
     main()

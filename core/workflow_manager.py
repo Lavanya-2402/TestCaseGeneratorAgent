@@ -1,3 +1,10 @@
+"""
+GitHub Actions Workflow Setup and Polling Manager.
+
+Manages injecting required remote workflow templates (`kb-scanner.yml`), extraction scripts (`extract_ast.py`),
+and CodeQL query files (`*.ql`) into the target repository via GitHub API commits, and polls remote run completion.
+"""
+
 import base64
 import time
 from pathlib import Path
@@ -5,15 +12,30 @@ from typing import Optional, Dict
 from core.github_client import GitHubClient
 
 class WorkflowManager:
+    """
+    Manages workflow injection, CodeQL language detection, and polling for workflow execution status.
+    """
+
     WORKFLOW_PATH = ".github/workflows/kb-scanner.yml"
     SCRIPT_PATH = ".github/scripts/extract_ast.py"
 
     def __init__(self, client: GitHubClient):
+        """Initializes the WorkflowManager with an active GitHubClient instance."""
         self.client = client
 
     def setup_repo(self, owner: str, repo: str) -> bool:
-        """Ensure workflow files exist in target repo."""
+        """
+        Ensures workflow template files exist in the target repository by committing them via GitHub API.
+
+        Args:
+            owner (str): Target repository owner.
+            repo (str): Target repository name.
+
+        Returns:
+            bool: True if files were updated/committed, False otherwise.
+        """
         print(f"Checking workflow setup in {owner}/{repo}...")
+
         
         changed = False
         
@@ -59,9 +81,9 @@ class WorkflowManager:
         return changed
 
     def determine_languages(self, owner: str, repo: str) -> str:
-        """Detect CodeQL supported languages in the repo."""
+        """Detect CodeQL supported target languages (Java, JavaScript, TypeScript) in the repo."""
         langs = self.client.get_languages(owner, repo)
-        supported = {"Python", "JavaScript", "TypeScript", "Java", "Go", "Ruby", "C", "C++", "C#"}
+        supported = {"Java", "JavaScript", "TypeScript"}
         
         detected = [l.lower() for l in langs.keys() if l in supported]
         # Map typescript to javascript for CodeQL
@@ -70,6 +92,7 @@ class WorkflowManager:
             detected.remove("typescript")
             
         return ",".join(list(set(detected)))
+
 
     def trigger_and_wait(self, owner: str, repo: str, language: str = None) -> Optional[int]:
         """Trigger workflow and wait for completion."""

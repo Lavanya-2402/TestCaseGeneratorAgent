@@ -1,10 +1,22 @@
+"""
+Jira Cloud REST API Integration Client.
+
+Provides authentication and payload builder methods for creating Jira issues (Feature / Story / Task)
+and performing status transitions via the Jira REST API v3.
+"""
+
 import os
 import requests
 from requests.auth import HTTPBasicAuth
 from typing import Dict, Any, List, Optional
 
 class JiraClient:
+    """
+    Client for interacting with Jira Cloud REST API endpoints.
+    """
+
     def __init__(self, url: Optional[str] = None, email: Optional[str] = None, token: Optional[str] = None, project_key: Optional[str] = None):
+        """Initializes Jira credentials from explicit arguments or environment variables."""
         self.url = (url or os.getenv("JIRA_URL", "")).rstrip("/")
         self.email = email or os.getenv("JIRA_EMAIL", "")
         self.token = token or os.getenv("JIRA_API_TOKEN", "")
@@ -14,7 +26,9 @@ class JiraClient:
         self.headers = {"Accept": "application/json", "Content-Type": "application/json"}
 
     def is_configured(self) -> bool:
+        """Checks whether all required Jira connection credentials are set."""
         return bool(self.url and self.email and self.token and self.project_key)
+
 
     def transition_issue(self, issue_key: str, target_status: str) -> bool:
         """Transitions a Jira issue to a specified target status (e.g., 'In Progress', 'Done', 'To Do')."""
