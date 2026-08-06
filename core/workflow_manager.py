@@ -1,3 +1,4 @@
+import os
 import base64
 import time
 from pathlib import Path
@@ -83,8 +84,9 @@ class WorkflowManager:
             
         inputs = {"languages": language}
         
+        default_branch = os.getenv("DEFAULT_BRANCH", "main")
         print("Triggering workflow...")
-        success = self.client.trigger_workflow(owner, repo, "kb-scanner.yml", "main", inputs)
+        success = self.client.trigger_workflow(owner, repo, "kb-scanner.yml", default_branch, inputs)
         if not success:
             print("  Failed to trigger workflow.")
             return None

@@ -17,13 +17,15 @@ try:
     import tree_sitter_javascript
     LANG_MAP[".js"] = ("javascript", tree_sitter_javascript)
     LANG_MAP[".jsx"] = ("javascript", tree_sitter_javascript)
-except ImportError: pass
+except ImportError as e:
+    print(f"Warning: tree_sitter_javascript not found: {e}")
 
 try:
     import tree_sitter_typescript
     LANG_MAP[".ts"] = ("typescript", tree_sitter_typescript)
     LANG_MAP[".tsx"] = ("tsx", tree_sitter_typescript)
-except ImportError: pass
+except ImportError as e:
+    print(f"Warning: tree_sitter_typescript not found: {e}")
 
 try:
     import tree_sitter_java
@@ -155,7 +157,7 @@ def process_python(tree, source_bytes, rel_path, all_nodes, all_edges):
 
 def process_js_ts(tree, source_bytes, rel_path, all_nodes, all_edges):
     file_id = f"file://{rel_path}"
-    
+        
     def traverse(node, current_context_id=None):
         if node.type in ('function_declaration', 'method_definition', 'arrow_function'):
             name_node = node.child_by_field_name('name')
@@ -170,18 +172,28 @@ def process_js_ts(tree, source_bytes, rel_path, all_nodes, all_edges):
                         if child.type in ('identifier', 'formal_parameters', 'required_parameter'):
                             params.append(extract_node_text(child, source_bytes))
 
-                all_nodes.append({
+                is_ui = False
+                c_name = ""
+                if (rel_path.endswith('.jsx') or rel_path.endswith('.tsx')) and func_name and func_name[0].isupper():
+                    is_ui = True
+                    c_name = func_name
+                    
+                node_data = {
                     "id": func_id,
                     "type": "FUNCTION",
                     "name": func_name,
                     "file": rel_path,
+                    "class_name": c_name,
+                    "is_ui_component": is_ui,
                     "parameters": params,
                     "docstring": "",
                     "decorators": [],
                     "line_start": node.start_point[0] + 1,
                     "line_end": node.end_point[0] + 1,
-                    "body": extract_node_text(node, source_bytes)
-                })
+                }
+                if not is_ui:
+                    node_data["body"] = extract_node_text(node, source_bytes)
+                all_nodes.append(node_data)
                 all_edges.append({"source": file_id, "target": func_id, "type": "DEFINES"})
                 
                 body_node = node.child_by_field_name('body')
@@ -203,7 +215,7 @@ def process_js_ts(tree, source_bytes, rel_path, all_nodes, all_edges):
         for child in node.children:
             traverse(child, current_context_id)
             
-    traverse(tree.root_node)
+    traverse(tree.root_node, current_context_id=file_id)
 
 def process_java(tree, source_bytes, rel_path, all_nodes, all_edges):
     file_id = f"file://{rel_path}"

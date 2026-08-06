@@ -47,9 +47,15 @@ def build_tree_string(tree_data, prefix=""):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--repo', default='supriya-daita/LibraryManagementSystem', help="GitHub repo owner/name")
+    parser.add_argument('--repo', default='', help="GitHub repo owner/name (owner/repo). Defaults to GITHUB_REPO env var.")
     parser.add_argument('--out', default='repo_structure.txt', help="Output text file path")
     args = parser.parse_args()
+
+    repo_input = args.repo.strip() or os.getenv("GITHUB_REPO", "")
+    if not repo_input:
+        print("Error: Repository is required. Pass via --repo or set GITHUB_REPO env var.")
+        sys.exit(1)
+    args.repo = repo_input
 
     load_dotenv()
     gh_pat = os.getenv("GITHUB_PAT")

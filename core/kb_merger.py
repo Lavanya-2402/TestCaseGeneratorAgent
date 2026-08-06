@@ -4,8 +4,8 @@ from datetime import datetime
 
 class KBMerger:
     @staticmethod
-    def merge(repo: str, ast_data: Dict[str, Any], sarif_data_list: Optional[List[Dict]] = None, structural_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Merge AST graph data, structural CodeQL data, and SARIF findings into the final KB Graph format."""
+    def merge(repo: str, ast_data: Dict[str, Any], structural_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Merge AST graph data and structural CodeQL data into the final KB Graph format."""
         
         nodes = ast_data.get("nodes", [])
         edges = ast_data.get("edges", [])
@@ -51,10 +51,14 @@ class KBMerger:
 
         for node in nodes:
             if node["type"] == "FUNCTION":
-                c_name = node.get("class_name")
-                if c_name and c_name in class_nodes_by_name:
-                    node["class_role"] = class_nodes_by_name[c_name].get("class_role", "GENERAL")
-                    node["class_annotations"] = class_nodes_by_name[c_name].get("annotations", [])
+                if node.get("is_ui_component"):
+                    node["class_role"] = "UI_COMPONENT"
+                    node["class_annotations"] = []
+                else:
+                    c_name = node.get("class_name")
+                    if c_name and c_name in class_nodes_by_name:
+                        node["class_role"] = class_nodes_by_name[c_name].get("class_role", "GENERAL")
+                        node["class_annotations"] = class_nodes_by_name[c_name].get("annotations", [])
 
         # 2. Resolve raw name target edges
         resolved_edges = []
@@ -99,12 +103,5 @@ class KBMerger:
                         "element": ann.get("element_name"),
                         "value": ann.get("element_value")
                     })
-
-        # 4. PAUSED: Process SARIF vulnerability data (commented out)
-        # if sarif_data_list:
-        #     for sarif in sarif_data_list:
-        #         for run in sarif.get("runs", []):
-        #             for result in run.get("results", []):
-        #                 ...
 
         return kb

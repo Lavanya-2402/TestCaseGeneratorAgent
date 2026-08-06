@@ -21,10 +21,15 @@ load_dotenv()
 
 app = FastAPI()
 
+# ── CORS ───────────────────────────────────────────────────────────────────────
+# In production set ALLOWED_ORIGINS in .env to your real frontend URL(s).
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000")
+_allow_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -56,7 +61,7 @@ pipeline_state = {
         "jira_tests_created": 0,
         "jira_project_url": "",
         "commit_id": "—",
-        "branch": "main",
+        "branch": os.getenv("DEFAULT_BRANCH", "main"),
         "languages": {}
     },
     "logs": []
@@ -113,8 +118,7 @@ def parse_log_line(line: str):
     elif "[Jira Sync]" in line or "Jira Integration" in line:
         if pipeline_state["currentStep"] < 6:
             pipeline_state["currentStep"] = 6
-        # Parse the actual count from the Jira summary line:
-        # e.g. "[Jira Sync] Successfully pushed 13 test issues to Jira Project SCRUM!"
+        # Parse the actual count from the Jira summary line
         match = re.search(r'pushed\s+(\d+)\s+test issues', line)
         if match:
             pipeline_state["metrics"]["jira_tests_created"] = int(match.group(1))
@@ -156,8 +160,8 @@ async def run_pipeline_task(repo: str):
     for k in numeric_keys:
         pipeline_state["metrics"][k] = 0
         
-    pipeline_state["metrics"]["commit_id"] = "c2d3592"
-    pipeline_state["metrics"]["branch"] = "main"
+    pipeline_state["metrics"]["commit_id"] = "—"
+    pipeline_state["metrics"]["branch"] = os.getenv("DEFAULT_BRANCH", "main")
     pipeline_state["metrics"]["languages"] = {}
         
     await notify_listeners("state_update", pipeline_state)
@@ -223,6 +227,8 @@ async def run_agent_task(script_name: str, repo: str):
         pipeline_state["currentStep"] = 2
     elif "tester" in script_name:
         pipeline_state["currentStep"] = 4
+    elif "selenium" in script_name:
+        pipeline_state["currentStep"] = 5
     else:
         pipeline_state["currentStep"] = 1
         
@@ -264,7 +270,6 @@ def clean_repo_url(url_or_repo: str) -> str:
         return ""
     repo = url_or_repo.strip()
     if "github.com/" in repo:
-        import re
         match = re.search(r'github\.com/([^/]+/[^/]+)', repo)
         if match:
             repo = match.group(1)
@@ -274,8 +279,6 @@ def clean_repo_url(url_or_repo: str) -> str:
 
 @app.post("/api/run")
 async def run_pipeline(request: RunRequest, background_tasks: BackgroundTasks):
-    global pipeline_state
-    
     raw_repo = request.repo.strip() or os.getenv("GITHUB_REPO", "").strip()
     repo = clean_repo_url(raw_repo)
     if not repo:
@@ -331,6 +334,20 @@ async def run_tester_agent(request: RunRequest, background_tasks: BackgroundTask
         
     background_tasks.add_task(run_agent_task, "agents/tester_agent.py", repo)
     return {"status": "ok", "message": "Tester Agent started"}
+
+@app.post("/api/run-selenium")
+async def run_selenium_agent(request: RunRequest, background_tasks: BackgroundTasks):
+    """Trigger the Selenium UI test generation agent."""
+    repo = request.repo.strip() or os.getenv("GITHUB_REPO", "").strip()
+    if not repo:
+        return {"status": "error", "message": "Repository is required. Please enter an owner/repo name or set GITHUB_REPO in .env."}
+
+    if pipeline_state["isRunning"]:
+        return {"status": "error", "message": "An agent task is already running"}
+
+    # Selenium generation is now built into the Tester Agent.
+    background_tasks.add_task(run_agent_task, "agents/tester_agent.py", repo)
+    return {"status": "ok", "message": "Tester Agent (with Selenium enabled) started"}
 
 @app.get("/api/download-tests")
 async def download_tests(repo: str = ""):
@@ -432,7 +449,7 @@ def load_kb_metrics(repo: str = "") -> dict:
         # Parse test_plan.json for dynamic test counts
         unit_happy = unit_bva = unit_negative = unit_mock = unit_security = 0
         integration_happy = integration_bva = integration_negative = integration_mock = integration_security = 0
-        unit_total = integration_total = total_files = 0
+        unit_total = integration_total = selenium_total = total_files = 0
         
         tp_file = find_output_file(repo, "test_plan.json")
         if tp_file and tp_file.exists():
@@ -454,6 +471,8 @@ def load_kb_metrics(repo: str = "") -> dict:
                                 elif "negative" in t_low or "exception" in t_low: unit_negative += 1
                                 elif "mock" in t_low: unit_mock += 1
                                 elif "security" in t_low: unit_security += 1
+                            elif axis == "selenium_controller":
+                                selenium_total += 1
                             else:
                                 integration_total += 1
                                 if "happy" in t_low or "standard" in t_low: integration_happy += 1
@@ -463,7 +482,12 @@ def load_kb_metrics(repo: str = "") -> dict:
                                 elif "security" in t_low: integration_security += 1
             except Exception as e:
                 print(f"Error parsing test_plan.json: {e}")
-        
+
+        # Build Jira URL from env vars — no inline hardcoded fallbacks
+        jira_base = os.getenv("JIRA_URL", "").rstrip("/")
+        jira_key = os.getenv("JIRA_PROJECT_KEY", "")
+        jira_url = os.getenv("JIRA_PROJECT_URL", f"{jira_base}/browse/{jira_key}" if jira_base and jira_key else "")
+
         return {
             "files_scanned": len(files),
             "lines_analyzed": total_loc,
@@ -472,8 +496,8 @@ def load_kb_metrics(repo: str = "") -> dict:
             "graph_nodes": len(nodes),
             "graph_edges": len(edges),
             "security_vulns": data.get("summary", {}).get("total_vulnerabilities", 0),
-            "commit_id": commit_sha[:8] if commit_sha else "c2d3592",
-            "branch": "main",
+            "commit_id": commit_sha[:8] if commit_sha else "—",
+            "branch": os.getenv("DEFAULT_BRANCH", "main"),
             "languages": languages_pct,
             "repo_name": repo_full.split("/")[-1] if "/" in repo_full else repo_full,
             "last_updated": formatted_time,
@@ -489,11 +513,12 @@ def load_kb_metrics(repo: str = "") -> dict:
             "integration_negative": integration_negative,
             "integration_mock": integration_mock,
             "integration_security": integration_security,
-            "test_cases_generated": unit_total + integration_total,
+            "selenium_tests": selenium_total,
+            "test_cases_generated": unit_total + integration_total + selenium_total,
             "total_files": total_files,
             "bugs_pushed": pipeline_state["metrics"].get("jira_tests_created", 0),
             "jira_status": "Synced" if pipeline_state["metrics"].get("jira_tests_created", 0) > 0 else "Waiting...",
-            "jira_project_url": os.getenv("JIRA_PROJECT_URL", f"{os.getenv('JIRA_URL', 'https://sreejabiswas2.atlassian.net')}/browse/{os.getenv('JIRA_PROJECT_KEY', 'SCRUM')}")
+            "jira_project_url": jira_url
         }
     except Exception as e:
         print(f"Error parsing kb.json: {e}")
@@ -532,6 +557,31 @@ async def download_security_report(repo: str):
         filename=f"{repo_name}_security_report.json"
     )
 
+@app.get("/api/download-selenium-tests")
+async def download_selenium_tests(repo: str = ""):
+    """Download the generated Selenium test suite as a ZIP."""
+    repo_name = repo.split("/")[-1] if repo else pipeline_state.get("repo_name", "")
+    selenium_dir = Path("output") / repo_name / "selenium_tests" if repo_name else None
+
+    if not selenium_dir or not selenium_dir.exists():
+        raise HTTPException(status_code=404, detail="No Selenium tests found. Please run the Selenium Agent first.")
+
+    memory_file = io.BytesIO()
+    with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for root, dirs, files in os.walk(selenium_dir):
+            for file in files:
+                file_path = os.path.join(root, file)
+                arcname = os.path.relpath(file_path, selenium_dir)
+                zipf.write(file_path, arcname)
+
+    memory_file.seek(0)
+    filename_zip = f"{repo_name}_selenium_tests.zip" if repo_name else "selenium_tests.zip"
+    return StreamingResponse(
+        memory_file,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={filename_zip}"}
+    )
+
 @app.get("/api/stream")
 async def message_stream(request: Request):
     q = asyncio.Queue()
@@ -560,7 +610,9 @@ async def message_stream(request: Request):
 @app.get("/api/jira-status")
 async def get_jira_status(repo: str = ""):
     metrics = load_kb_metrics(repo)
-    default_url = f"{os.getenv('JIRA_URL', 'https://sreejabiswas2.atlassian.net')}/browse/{os.getenv('JIRA_PROJECT_KEY', 'SCRUM')}"
+    jira_base = os.getenv("JIRA_URL", "").rstrip("/")
+    jira_key = os.getenv("JIRA_PROJECT_KEY", "")
+    default_url = f"{jira_base}/browse/{jira_key}" if jira_base and jira_key else ""
     return {
         "bugs_pushed": metrics.get("bugs_pushed", 0),
         "sync_status": metrics.get("jira_status", "Waiting..."),

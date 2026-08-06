@@ -4,6 +4,7 @@ import json
 import argparse
 import subprocess
 from pathlib import Path
+from dotenv import load_dotenv
 
 # Add project root directory to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -14,20 +15,9 @@ from core.artifact_downloader import ArtifactDownloader
 from core.kb_merger import KBMerger
 from tools.get_repo_structure import build_tree_string
 
-def load_env():
-    """Load variables from .env file into os.environ"""
-    env_path = Path(".env")
-    if env_path.exists():
-        with open(env_path, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, val = line.split("=", 1)
-                    os.environ[key.strip()] = val.strip()
-
 def main():
     # Load .env file first
-    load_env()
+    load_dotenv()
 
     parser = argparse.ArgumentParser(description="Code Knowledge Base Scanner")
     parser.add_argument("--repo", help="Target repository (owner/repo). Defaults to GITHUB_REPO env var.")
@@ -87,6 +77,7 @@ def main():
         run_id = wf_manager.trigger_and_wait(owner, repo, args.language)
         if not run_id:
             print("Scan failed or timed out.")
+            #####notify the user when failed or timed out.
             sys.exit(1)
     except Exception as e:
         print(f"Error during workflow execution: {e}")
@@ -105,7 +96,6 @@ def main():
     kb = KBMerger.merge(
         repo=args.repo,
         ast_data=artifacts["ast"],
-        sarif_data_list=artifacts.get("sarif", []),
         structural_data=artifacts.get("structural", {})
     )
 
@@ -119,6 +109,7 @@ def main():
     out_file = out_dir / "kb.json"
     with open(out_file, "w") as f:
         json.dump(kb, f, indent=2)
+        ######dont hardcode the slashes use some functions for it.
         
     # PAUSED: Vulnerabilities report writing (commented out)
     # vuln_out = out_dir / "vulnerabilities_report.json"
@@ -130,11 +121,14 @@ def main():
         response = client.get(f"/repos/{owner}/{repo}/git/trees/{latest_sha}?recursive=1")
         tree_str = f"Repository Structure: {owner}/{repo} (SHA: {latest_sha[:7]})\n"
         tree_str += "=" * 50 + "\n"
+        ###why 50
         tree_str += build_tree_string(response.get("tree", []))
         
         tree_out = out_dir / "repo_structure.txt"
         with open(tree_out, "w", encoding="utf-8") as f:
             f.write(tree_str)
+            ######dont hardcode the slashes use some constants for it.
+    
     except Exception as e:
         print(f"Warning: Failed to fetch repository structure: {e}")
         tree_out = None
@@ -142,8 +136,8 @@ def main():
     # 6. Generate Visualization
     graph_out = out_dir / "graph.html"
     print(f"\nGenerating interactive Knowledge Graph visualization...")
-    subprocess.run(["python", "tools/visualize.py", "--input", str(out_file), "--output", str(graph_out)])
-        
+    subprocess.run([sys.executable, "tools/visualize.py", "--input", str(out_file), "--output", str(graph_out)])
+        ###why subprocess.
     print(f"\n[SUCCESS] KB Extraction and Visualization Complete!")
     print(f"Summary:")
     print(f"  Total Nodes: {kb['summary'].get('total_nodes', 0)}")

@@ -31,10 +31,16 @@ def get_affected_ranges(patch_str):
 
 def main():
     parser = argparse.ArgumentParser(description="Incremental AST-Based Tester Agent")
-    parser.add_argument('--repo', default='supriya-daita/LibraryManagementSystem', help="GitHub repo owner/name")
-    parser.add_argument('--kb', default=r'output\LibraryManagementSystem\kb.json', help="Path to the fresh kb.json (after push)")
+    parser.add_argument('--repo', default='', help="GitHub repo owner/name (owner/repo). Defaults to GITHUB_REPO env var.")
+    parser.add_argument('--kb', default='', help="Path to the fresh kb.json (after push). Defaults to output/<repo>/kb.json.")
     parser.add_argument('--commit', required=True, help="The SHA of the new commit to analyze")
     args = parser.parse_args()
+
+    repo_input = args.repo.strip() or os.getenv("GITHUB_REPO", "")
+    if not repo_input:
+        print("Error: Repository is required. Pass via --repo or set GITHUB_REPO env var.")
+        return
+    args.repo = repo_input
 
     gh_pat = os.getenv("GITHUB_PAT")
     gemini_key = os.getenv("GEMINI_API_KEY")
@@ -45,10 +51,13 @@ def main():
     owner, repo_name = args.repo.split('/')
     gh_client = GitHubClient(gh_pat)
     genai.configure(api_key=gemini_key)
-    model = genai.GenerativeModel('gemini-3.5-flash-lite')
+    model = genai.GenerativeModel('gemini-2.0-flash-lite')
 
-    print(f"Loading Knowledge Graph from {args.kb}...")
-    with open(args.kb, 'r') as f:
+    # Resolve kb path
+    kb_path = args.kb.strip() if args.kb.strip() else f"output/{repo_name}/kb.json"
+
+    print(f"Loading Knowledge Graph from {kb_path}...")
+    with open(kb_path, 'r') as f:
         data = json.load(f)
 
     # Reconstruct the Graph for context (Dependency mocking)
@@ -133,7 +142,6 @@ def main():
              text = response.text
              
              # Segregated File Saving
-             import re
              java_blocks = {}
              for match in re.finditer(r'\[JAVA:([^\]]+)\](.*?)\[/JAVA:\1\]', text, re.DOTALL):
                  tag = match.group(1).lower().strip()

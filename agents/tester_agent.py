@@ -2,10 +2,8 @@
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-import os
 import re
 import time
-import asyncio
 import json
 import csv
 import argparse
@@ -472,6 +470,131 @@ WRITE: class `{class_name}ConstraintViolationIT`
 Output one compilable Java class in a single ```java block.
 """
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Selenium WebDriver Prompt Templates
+# ─────────────────────────────────────────────────────────────────────────────
+
+SELENIUM_SYSTEM_PROMPT = """\
+You are a Senior QA Automation Engineer specialising in Selenium WebDriver 4, Java 17, JUnit 5, and the Page Object Model (POM).
+
+OUTPUT FORMAT REQUIREMENTS:
+Your response MUST contain exactly ONE valid, compilable Java class inside a single ```java ... ``` block.
+
+RULES:
+- Use Selenium 4 (org.openqa.selenium.*).
+- Use the Page Object Model pattern (inner static page class is acceptable for brevity).
+- Every @Test MUST have a @DisplayName that reads as a plain English sentence.
+- Write ALL package imports explicitly — no wildcards.
+- Base URL MUST come from: System.getProperty("base.url", "http://localhost:8080")
+- Use WebDriverWait (explicit waits) — never Thread.sleep.
+- Do NOT invent selectors — derive them from context provided.
+"""
+
+SELENIUM_PAGE_LOAD_PROMPT = """You are writing a SELENIUM PAGE LOAD TEST for the endpoint: {http_method} {base_url}{endpoint_url}
+
+CONTEXT:
+  Controller: {class_name}  (package: {package})
+  Method:     {func_name}
+  Returns:    {return_type}
+  Parameters: {parameters}
+
+WRITE: class `{class_name}PageLoadSeleniumTest`
+
+Tests to include:
+  1. @Test \"Page loads successfully and the browser title is present\"
+     driver.get(BASE_URL + "{endpoint_url}")
+     assertNotNull(driver.getTitle())
+     assertFalse(driver.getTitle().isEmpty())
+
+  2. @Test \"Key UI elements are visible after page load\"
+     WebElement body = wait.until(ExpectedConditions.visibilityOfElementLocated(By.tagName(\"body\")))
+     assertTrue(body.isDisplayed())
+
+Use WebDriverWait(driver, Duration.ofSeconds(10)) before every assertion.
+
+Output one compilable Java class in a single ```java block.
+"""
+
+SELENIUM_BUTTON_CLICK_PROMPT = """You are writing a SELENIUM BUTTON CLICK TEST for the endpoint: {http_method} {base_url}{endpoint_url}
+
+CONTEXT:
+  Controller: {class_name}  (package: {package})
+  Method:     {func_name}
+  Returns:    {return_type}
+  Parameters: {parameters}
+
+  Source Code:
+  {body}
+
+WRITE: class `{class_name}ButtonClickSeleniumTest`
+
+Tests to include:
+  1. @Test \"Submit button is clickable and triggers expected page response\"
+     driver.get(BASE_URL + "{endpoint_url}")
+     WebElement btn = wait.until(ExpectedConditions.elementToBeClickable(By.cssSelector(\"button[type='submit'], input[type='submit'], button\")))
+     btn.click()
+     // Assert result: URL change OR success message OR status indicator visible
+
+  2. @Test \"Clicking submit with missing required fields shows a validation error\"
+     // Clear required inputs, click submit, assert error element is visible
+     WebElement error = wait.until(ExpectedConditions.visibilityOfElementLocated(By.cssSelector(\".error, .alert, [role='alert']\")))
+     assertTrue(error.isDisplayed())
+
+Output one compilable Java class in a single ```java block.
+"""
+
+SELENIUM_FORM_FILL_PROMPT = """You are writing a SELENIUM FORM FILL TEST for the endpoint: {http_method} {base_url}{endpoint_url}
+
+CONTEXT:
+  Controller: {class_name}  (package: {package})
+  Method:     {func_name}
+  Parameters / Form fields: {parameters}
+
+WRITE: class `{class_name}FormFillSeleniumTest`
+
+Tests to include:
+  1. @Test \"Happy path: fill all required fields and submit form successfully\"
+     driver.get(BASE_URL + "{endpoint_url}")
+     // Fill each input with valid data: driver.findElement(By.name(\"field\")).sendKeys(\"value\")
+     // Submit and assert success indicator (URL change / success banner)
+
+  2. @Test \"Submitting form with empty required fields triggers validation\"
+     // Leave fields empty, click submit
+     // Assert presence of error messages
+
+  3. @Test \"Submitting form with boundary length values is handled correctly\"
+     // Use 1-character (min) and 255-character (max) input strings
+
+Output one compilable Java class in a single ```java block.
+"""
+
+SELENIUM_ERROR_STATE_PROMPT = """You are writing a SELENIUM ERROR STATE TEST for the endpoint: {http_method} {base_url}{endpoint_url}
+
+CONTEXT:
+  Controller: {class_name}  (package: {package})
+  Method:     {func_name}
+  Throws:     {throws_list}
+
+WRITE: class `{class_name}ErrorStateSeleniumTest`
+
+Tests to include:
+  1. @Test \"Accessing a non-existent resource shows a user-friendly error page\"
+     driver.get(BASE_URL + "{endpoint_url}/99999999")
+     String title = driver.getTitle().toLowerCase()
+     assertFalse(title.contains(\"exception\"))
+     // Assert no raw stack trace is rendered in the page body
+
+  2. @Test \"Malformed URL parameter returns a handled error, not a blank page\"
+     driver.get(BASE_URL + "{endpoint_url}/!!!invalid!!!") 
+     assertFalse(driver.getPageSource().isEmpty())
+
+  3. @Test \"Error page does not expose internal stack trace details\"
+     // Navigate to known error URL, assert page source does NOT contain 'at com.' or 'NullPointerException'
+
+Output one compilable Java class in a single ```java block.
+"""
+
+
 TECHNIQUE_PROMPTS = {
     "unit": {
         "happy_path": UNIT_HAPPY_PATH_PROMPT,
@@ -490,7 +613,13 @@ TECHNIQUE_PROMPTS = {
         "happy_path":           INTEG_REPO_HAPPY_PATH_PROMPT,
         "negative":             INTEG_REPO_NEGATIVE_PROMPT,
         "constraint_violation": INTEG_REPO_CONSTRAINT_PROMPT,
-    }
+    },
+    "selenium_ui": {
+        "page_load":    SELENIUM_PAGE_LOAD_PROMPT,
+        "button_click": SELENIUM_BUTTON_CLICK_PROMPT,
+        "form_fill":    SELENIUM_FORM_FILL_PROMPT,
+        "error_state":  SELENIUM_ERROR_STATE_PROMPT,
+    },
 }
 
 FILE_SUFFIX = {
@@ -511,24 +640,32 @@ FILE_SUFFIX = {
         "happy_path":           "HappyPathIT",
         "negative":             "NegativeIT",
         "constraint_violation": "ConstraintViolationIT",
-    }
+    },
+    "selenium_ui": {
+        "page_load":    "PageLoadSeleniumTest",
+        "button_click": "ButtonClickSeleniumTest",
+        "form_fill":    "FormFillSeleniumTest",
+        "error_state":  "ErrorStateSeleniumTest",
+    },
 }
 
-CODE_REQUIRED_TECHNIQUES = {"exception", "mock", "negative"}
+CODE_REQUIRED_TECHNIQUES = {"exception", "mock", "negative", "button_click", "form_fill", "error_state"}
 SKIP_METHODS = {
     "main", "toString", "equals", "hashCode",
     "getId", "setId", "getName", "setName",
     "getEmail", "setEmail", "isActive", "setActive"
 }
 
-def get_axis(class_role: str) -> str:
+def get_axes(class_role: str) -> list[str]:
     if class_role in ("SERVICE", "GENERAL"):
-        return "unit"
+        return ["unit"]
     elif class_role == "CONTROLLER":
-        return "integration_controller"
+        return ["integration_controller"]
+    elif class_role == "UI_COMPONENT":
+        return ["selenium_ui"]
     elif class_role == "REPOSITORY":
-        return "integration_repository"
-    return None
+        return ["integration_repository"]
+    return []
 
 def parse_null_checks(body: str) -> list[str]:
     if not body: return []
@@ -593,8 +730,6 @@ def parse_endpoint_url(annotations: list) -> str:
             if m: return m.group(1)
     return ""
 
-
-
 def get_applicable_techniques(axis: str, func: dict, ctx: dict, outgoing_calls: list) -> list[str]:
     techniques = ["happy_path"]
 
@@ -620,111 +755,10 @@ def get_applicable_techniques(axis: str, func: dict, ctx: dict, outgoing_calls: 
         techniques.append("negative")
         techniques.append("constraint_violation")
 
+    elif axis == "selenium_ui":
+        techniques = ["page_load", "button_click", "form_fill", "error_state"]
+
     return techniques
-
-def needs_body(applicable_techniques: list) -> bool:
-    return bool(set(applicable_techniques) & CODE_REQUIRED_TECHNIQUES)
-
-def build_context(func: dict, parent_class: dict, outgoing_calls: list, include_body: bool) -> dict:
-    body_text = func.get("body", "") if include_body else "(not required for these techniques)"
-
-    null_checks        = parse_null_checks(body_text)
-    blank_checks       = parse_blank_checks(body_text)
-    boundary_branches  = parse_branches(body_text)
-    early_exits        = parse_early_exits(body_text)
-    exception_triggers = map_exception_triggers(func.get("throws", []), body_text)
-
-    calls_formatted = "\n".join([
-        f"  {e.get('object','')}.{e.get('target','')}({', '.join(e.get('arguments', []))}) -> {e.get('callee_return_type', 'void')}"
-        for e in outgoing_calls
-    ])
-
-    fields_formatted = "\n".join([
-        f"  {f.get('type','')} {f.get('name','')}" for f in parent_class.get("fields", [])
-    ])
-    constructors_formatted = "\n".join([
-        f"  new {parent_class.get('name', '')}({', '.join(c.get('params', []))})"
-        for c in parent_class.get("constructors", [])
-    ])
-
-    file_path = func.get("file", "")
-    if "src/main/java/" in file_path:
-        package = file_path.split("src/main/java/")[-1].rsplit("/", 1)[0].replace("/", ".")
-    else:
-        package = "com.medibook"
-
-    class_name = func.get("class_name", "UnknownClass")
-    class_name_lower = class_name[0].lower() + class_name[1:] if class_name else "target"
-
-    return {
-        "package":                    package,
-        "class_name":                 class_name,
-        "class_name_lower":           class_name_lower,
-        "class_role":                 func.get("class_role", ""),
-        "class_annotations":          ", ".join(parent_class.get("annotations", [])),
-        "func_name":                  func.get("name", ""),
-        "return_type":                func.get("return_type", ""),
-        "parameters":                 ", ".join(func.get("parameters", [])),
-        "throws_list":                ", ".join(func.get("throws", [])),
-        "annotations":                ", ".join(func.get("annotations", [])),
-        "javadoc":                    func.get("javadoc", ""),
-        "body":                       body_text,
-        "fields_formatted":           fields_formatted or "(none)",
-        "constructors_formatted":     constructors_formatted or f"  new {class_name}()",
-        "calls_formatted":            calls_formatted or "(none)",
-        "annotation_values_formatted": func.get("annotation_values_formatted", "(none)"),
-        "null_checks":                "\n  ".join(null_checks) or "(none detected)",
-        "blank_checks":               "\n  ".join(blank_checks) or "(none detected)",
-        "boundary_branches":          "\n  ".join(boundary_branches) or "(none detected)",
-        "early_exit_conditions":      "\n  ".join(early_exits) or "(none detected)",
-        "exception_trigger_map":      "\n  ".join(exception_triggers) or "(none detected)",
-        "http_method":                parse_http_method(func.get("annotations", [])),
-        "base_url":                   parse_base_url(parent_class.get("annotations", [])),
-        "endpoint_url":               parse_endpoint_url(func.get("annotations", [])),
-    }
-
-def sanitize_java_code(java_code: str) -> str:
-    """Fixes common LLM syntax glitches like missing 'void' return types, typos like 'wbvoid', and mismatched any(Class.class) stubs."""
-    # 1. Clean up typos where LLM or regex artifact created 'wbvoid', 'bvoid', etc.
-    java_code = re.sub(r'\b[a-zA-Z]{1,3}void\b', 'void', java_code)
-
-    # 2. Insert 'void' before test method names if return type was omitted after @Test / @DisplayName
-    # Matches: @Test (optional @DisplayName) followed by an identifier starting a method without a return type
-    pattern_missing_void = r'(@Test\s*(?:\n\s*@DisplayName\([^)]+\))?\s*\n\s*)([a-zA-Z0-9_]+\s*\(\)\s*\{)'
-    def replace_missing_void(match):
-        prefix = match.group(1)
-        method_sig = match.group(2)
-        # If method_sig doesn't start with a known modifier or return type, prepend void
-        if not re.match(r'^(?:public|protected|private|void|static)\b', method_sig):
-            return f"{prefix}void {method_sig}"
-        return match.group(0)
-
-    java_code = re.sub(pattern_missing_void, replace_missing_void, java_code)
-
-    # 3. Replace any(AnyClass.class) in Mockito stubs/verifications with plain any() to eliminate type inference compilation errors
-    pattern_any = r'any\s*\(\s*[A-Za-z0-9_\.]+\.class\s*\)'
-    java_code = re.sub(pattern_any, 'any()', java_code, flags=re.IGNORECASE)
-
-    return java_code
-
-def extract_java_block(text: str) -> str:
-    if "```java" in text:
-        block = text.split("```java")[1].split("```")[0].strip()
-        return sanitize_java_code(block)
-    elif "```" in text:
-        block = text.split("```")[1].split("```")[0].strip()
-        return sanitize_java_code(block)
-    return sanitize_java_code(text.strip())
-
-def append_csv(csv_path: Path, class_name: str, func_name: str, axis: str, technique: str, out_file: str):
-    header = ["ClassName", "FunctionName", "Axis1", "Axis2Technique", "OutputFile"]
-    needs_header = not csv_path.exists()
-    
-    with open(csv_path, "a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        if needs_header:
-            writer.writerow(header)
-        writer.writerow([class_name, func_name, axis, technique, out_file])
 
 def extract_csv_block(text: str) -> str:
     """Extracts CSV data rows block from Gemini output ([CSV]...[/CSV] or ```csv ... ```)."""
@@ -747,12 +781,6 @@ def extract_csv_block(text: str) -> str:
                 csv_lines.extend(lines)
         block = "\n".join(csv_lines)
 
-    exits = []
-    lines = body.splitlines()
-    for idx, line in enumerate(lines):
-        if "throw new" in line:
-            context = " ".join([lines[i].strip() for i in range(max(0, idx-2), idx+1)])
-            exits.append(context)
     return exits
 
 def map_exception_triggers(throws_list: list, body: str) -> list[str]:
@@ -790,32 +818,6 @@ def parse_endpoint_url(annotations: list) -> str:
 
 
 
-def get_applicable_techniques(axis: str, func: dict, ctx: dict, outgoing_calls: list) -> list[str]:
-    techniques = ["happy_path"]
-
-    if axis == "unit":
-        if ctx.get("null_checks") or ctx.get("blank_checks"):
-            techniques.append("negative")
-        if func.get("throws"):
-            techniques.append("exception")
-        if ctx.get("annotation_values_formatted") or ctx.get("boundary_branches"):
-            techniques.append("boundary")
-        if outgoing_calls:
-            techniques.append("mock")
-
-    elif axis == "integration_controller":
-        if ctx.get("null_checks") or ctx.get("blank_checks") or ctx.get("annotation_values_formatted"):
-            techniques.append("negative")
-        if func.get("throws"):
-            techniques.append("exception")
-        if ctx.get("annotation_values_formatted") or ctx.get("boundary_branches"):
-            techniques.append("boundary")
-
-    elif axis == "integration_repository":
-        techniques.append("negative")
-        techniques.append("constraint_violation")
-
-    return techniques
 
 def needs_body(applicable_techniques: list) -> bool:
     return bool(set(applicable_techniques) & CODE_REQUIRED_TECHNIQUES)
@@ -846,7 +848,7 @@ def build_context(func: dict, parent_class: dict, outgoing_calls: list, include_
     if "src/main/java/" in file_path:
         package = file_path.split("src/main/java/")[-1].rsplit("/", 1)[0].replace("/", ".")
     else:
-        package = "com.medibook"
+        package = os.getenv("DEFAULT_JAVA_PACKAGE", "com.example")
 
     class_name = func.get("class_name", "UnknownClass")
     class_name_lower = class_name[0].lower() + class_name[1:] if class_name else "target"
@@ -1033,15 +1035,13 @@ def main():
         print("Error: GEMINI_API_KEY environment variable is not set.")
         sys.exit(1)
 
-    # High-quota multi-model pool matching Google AI Studio dashboard
+    # Valid Gemini model pool — ordered by capability/quota preference
     model_pool = [
         'gemini-3.5-flash-lite',
         'gemini-3.1-flash-lite',
-        'gemini-2.5-flash-lite',
-        'gemini-3.5-flash',
-        'gemini-3.6-flash',
-        'gemini-3-flash',
-        'gemini-2.5-flash'
+        'gemini-2.0-flash',
+        'gemini-1.5-flash',
+        'gemini-1.5-flash-8b',
     ]
     if args.model and args.model not in model_pool:
         model_pool.insert(0, args.model)
@@ -1106,49 +1106,75 @@ def main():
         return is_dto_or_getter(func, parent_class)
 
     func_nodes = [
-        n for n in nodes
-        if n.get("type") == "FUNCTION"
-        and n.get("file", "").endswith(".java")
-        and n.get("class_name")
+        n for n in kb_data.get("nodes", []) 
+        if n.get("type") == "FUNCTION" 
         and n.get("name") not in SKIP_METHODS
         and not is_config_or_dto(n, classes_by_name.get(n.get("class_name"), {}))
     ]
-
+    
     print(f"Found {len(func_nodes)} testable target functions.")
 
     # ── PHASE 2: PLAN ──
     test_plan = []
     for func in func_nodes:
         class_role = func.get("class_role", "GENERAL")
-        axis = get_axis(class_role)
-        if not axis:
+        axes = get_axes(class_role)
+        if not axes:
             continue
 
         parent_class = classes_by_name.get(func.get("class_name"), {})
         outgoing_calls = calls_by_func.get(func.get("id"), [])
 
-        raw_ctx = build_context(func, parent_class, outgoing_calls, include_body=False)
-        applicable = get_applicable_techniques(axis, func, raw_ctx, outgoing_calls)
-        include_body = needs_body(applicable)
+        for axis in axes:
+            raw_ctx = build_context(func, parent_class, outgoing_calls, include_body=False)
+            applicable = get_applicable_techniques(axis, func, raw_ctx, outgoing_calls)
+            include_body = needs_body(applicable)
 
-        ctx = build_context(func, parent_class, outgoing_calls, include_body)
-        axis_short = "unit" if axis == "unit" else "integration"
-        suffixes = FILE_SUFFIX[axis]
+            if include_body and not func.get("body"):
+                file_path = func.get("file")
+                start = func.get("line_start")
+                end = func.get("line_end")
+                if file_path and os.path.exists(file_path):
+                    try:
+                        with open(file_path, "r", encoding="utf-8") as f:
+                            lines = f.read().splitlines()
+                            func["body"] = "\n".join(lines[max(0, start-1) : end])
+                    except Exception:
+                        pass
 
-        out_files = {
-            t: str(Path("automated") / axis_short / t / f"{func.get('class_name')}{suffixes[t]}.java")
-            for t in applicable
-        }
+            ctx = build_context(func, parent_class, outgoing_calls, include_body)
+            
+            # Name the test file after the class (or component name for UI components)
+            target_name = func.get('class_name') or func.get('name')
+            if axis == "unit":
+                axis_short = "unit"
+            elif axis == "selenium_ui":
+                axis_short = "Selenium Tests"
+            else:
+                axis_short = "integration"
+                
+            suffixes = FILE_SUFFIX[axis]
 
-        test_plan.append({
-            "class": func.get("class_name"),
-            "func": func.get("name"),
-            "axis": axis,
-            "techniques": applicable,
-            "include_body": include_body,
-            "out_files": out_files,
-            "context": ctx
-        })
+            if axis == "selenium_ui":
+                out_files = {
+                    t: str(Path("test/automated/selenium") / t / f"{target_name}{suffixes.get(t, 'Test')}.java")
+                    for t in applicable
+                }
+            else:
+                out_files = {
+                    t: str(Path("test/automated/junit") / axis_short / t / f"{target_name}{suffixes.get(t, 'Test')}.java")
+                    for t in applicable
+                }
+
+            test_plan.append({
+                "class": func.get("class_name"),
+                "func": func.get("name"),
+                "axis": axis,
+                "techniques": applicable,
+                "include_body": include_body,
+                "out_files": out_files,
+                "context": ctx
+            })
 
     plan_path = out_base / "test_plan.json"
     with open(plan_path, "w", encoding="utf-8") as f:
@@ -1160,7 +1186,13 @@ def main():
 
     for idx, task in enumerate(test_plan, 1):
         print(f"\n[{idx}/{len(test_plan)}] {task['class']}.{task['func']}() -> {task['techniques']}")
-        axis_short = "unit" if task["axis"] == "unit" else "integration"
+        
+        if task["axis"] == "unit":
+            axis_short = "unit"
+        elif task["axis"] == "selenium_ui":
+            axis_short = "Selenium Tests"
+        else:
+            axis_short = "integration"
 
         for technique in task["techniques"]:
             rel_file = task["out_files"][technique]
@@ -1184,7 +1216,7 @@ def main():
             print(f"  -> Generating {technique} [{cur_model_name}] ({rel_file})...", flush=True)
 
             success = False
-            for attempt in range(1, 4):
+            for attempt in range(1, 6):
                 try:
                     response = model.generate_content(full_prompt)
                     java_code = extract_java_block(response.text)
@@ -1197,31 +1229,38 @@ def main():
                     append_csv(csv_path, task["class"], task["func"], task["axis"], technique, rel_file)
 
                     if csv_rows:
-                        tech_excel_path = out_base / "manual" / f"{axis_short}_{technique}.xlsx"
-                        master_excel_path = out_base / "manual" / "manual_test_cases_master.xlsx"
+                        tech_excel_path = out_base / "test" / "manual" / f"{axis_short}_{technique}.xlsx"
+                        master_excel_path = out_base / "test" / "manual" / "manual_test_cases_master.xlsx"
                         sheet_title = f"{axis_short}_{technique}".replace("_", " ").title()
                         append_manual_excel(tech_excel_path, csv_rows, sheet_title)
                         append_manual_excel(master_excel_path, csv_rows, "Master Manual Tests")
                         print(f"  -> Appended manual test cases: {tech_excel_path.name}", flush=True)
 
-                    time.sleep(0.3)
+                    # Respect 15 RPM free tier limit
+                    time.sleep(4.0)
                     success = True
                     break
                 except Exception as e:
                     err_str = str(e)
-                    if "404" in err_str or "429" in err_str or "Quota exceeded" in err_str:
+                    if "404" in err_str or "invalid" in err_str.lower():
                         cur_model_name = model_pool[(call_counter + attempt) % len(model_pool)]
-                        print(f"  -> Rate limit hit (attempt {attempt}/3). Switching model to '{cur_model_name}'...", flush=True)
+                        print(f"  -> Model not found/invalid (attempt {attempt}/5). Switching to '{cur_model_name}' immediately...", flush=True)
                         model = genai.GenerativeModel(cur_model_name)
                         time.sleep(1.0)
                         continue
+                    elif "429" in err_str or "Quota exceeded" in err_str or "exhausted" in err_str.lower():
+                        cur_model_name = model_pool[(call_counter + attempt) % len(model_pool)]
+                        print(f"  -> Rate limit hit (attempt {attempt}/5). Waiting 10s and switching model to '{cur_model_name}'...", flush=True)
+                        model = genai.GenerativeModel(cur_model_name)
+                        time.sleep(10.0)
+                        continue
                     else:
                         print(f"  -> Error ({technique}) {task['class']}.{task['func']}: {e}", flush=True)
-                        time.sleep(0.5)
+                        time.sleep(1.0)
                         break
 
     # Clean up any residual .csv files in manual folder so only .xlsx Excel files remain
-    manual_dir = out_base / "manual"
+    manual_dir = out_base / "test" / "manual"
     if manual_dir.exists():
         for old_csv in manual_dir.glob("*.csv"):
             try:

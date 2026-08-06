@@ -1,7 +1,7 @@
 import os
 import sys
-import glob
 import json
+import argparse
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -10,6 +10,12 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 from core.jira_client import JiraClient
 
 def main():
+    parser = argparse.ArgumentParser(description="Push generated tests to Jira")
+    parser.add_argument('--repo', required=True, help="GitHub repo owner/name (e.g., owner/repo)")
+    args = parser.parse_args()
+
+    repo_name = args.repo.split('/')[-1] if '/' in args.repo else args.repo
+
     load_dotenv()
     
     jira = JiraClient()
@@ -25,12 +31,12 @@ def main():
     
     target_status = os.getenv("JIRA_FEATURE_STATUS", "In Progress")
     
-    # 1. Search for output test plans
-    plan_files = glob.glob("output/*/test_plan.json")
+    # 1. Look for output test plans only for the target repo
+    repo_out_dir = Path("output") / repo_name
+    plan_file = repo_out_dir / "test_plan.json"
     
     count = 0
-    if plan_files:
-        for plan_file in plan_files:
+    if plan_file.exists():
             print(f"\nProcessing {plan_file}...")
             try:
                 with open(plan_file, "r", encoding="utf-8") as f:
@@ -56,8 +62,8 @@ def main():
                 print(f"Error processing {plan_file}: {e}")
     else:
         # Fallback to test_matrix_summary.csv
-        csv_files = glob.glob("output/*/test_matrix_summary.csv")
-        for csv_file in csv_files:
+        csv_file = repo_out_dir / "test_matrix_summary.csv"
+        if csv_file.exists():
             print(f"\nProcessing {csv_file}...")
             try:
                 with open(csv_file, "r", encoding="utf-8") as f:
