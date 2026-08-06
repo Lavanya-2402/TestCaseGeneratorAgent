@@ -1,3 +1,12 @@
+"""
+FastAPI Server & Real-Time Pipeline Orchestration Backend.
+
+Provides HTTP REST endpoints and Server-Sent Events (SSE) streaming for the web dashboard:
+- Triggers full pipeline runs asynchronously in the background.
+- Streams live pipeline step updates and subprocess logs to connected web clients via SSE.
+- Exposes metrics, knowledge base status, interactive graph HTML, and downloadable ZIP archives of generated test suites.
+"""
+
 import sys
 import os
 import re
@@ -19,7 +28,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-app = FastAPI()
+app = FastAPI(title="KB-Scanner API", description="FastAPI Web Server for KB-Scanner Pipeline")
+
 
 # ── CORS ───────────────────────────────────────────────────────────────────────
 # In production set ALLOWED_ORIGINS in .env to your real frontend URL(s).
@@ -163,6 +173,7 @@ async def run_pipeline_task(repo: str):
     pipeline_state["metrics"]["commit_id"] = "—"
     pipeline_state["metrics"]["branch"] = os.getenv("DEFAULT_BRANCH", "main")
     pipeline_state["metrics"]["languages"] = {}
+
         
     await notify_listeners("state_update", pipeline_state)
     

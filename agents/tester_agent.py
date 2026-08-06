@@ -1,4 +1,12 @@
 # -*- coding: utf-8 -*-
+"""
+Phase 2: AI Strategy-Based Tester Agent.
+
+Reads `kb.json`, filters out DTOs/configs/getters/setters, determines test axis (Unit vs Integration)
+and techniques (HappyPath, Negative, Exception, Boundary, Mock) for each target method, invokes Google
+Gemini LLMs to generate compilable JUnit 5 & Mockito test classes, and creates manual Excel test suites.
+"""
+
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -11,6 +19,7 @@ from pathlib import Path
 from collections import defaultdict
 from dotenv import load_dotenv
 import google.generativeai as genai
+
 
 load_dotenv()
 

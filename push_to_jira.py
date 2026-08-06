@@ -1,3 +1,11 @@
+"""
+Jira Enterprise Integration Publisher.
+
+Reads generated test plans (`test_plan.json`) or test matrix summaries (`test_matrix_summary.csv`)
+from output directories and automatically creates Feature / Story / Task issues in the configured
+Jira Cloud project board via the Jira REST API.
+"""
+
 import os
 import sys
 import json
@@ -10,13 +18,17 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 from core.jira_client import JiraClient
 
 def main():
+    """
+    Connects to Jira API using credentials from .env, reads output test plan files,
+    and publishes test issue tickets to the target Jira project.
+    """
     parser = argparse.ArgumentParser(description="Push generated tests to Jira")
     parser.add_argument('--repo', required=True, help="GitHub repo owner/name (e.g., owner/repo)")
     args = parser.parse_args()
 
     repo_name = args.repo.split('/')[-1] if '/' in args.repo else args.repo
-
     load_dotenv()
+
     
     jira = JiraClient()
     if not jira.is_configured():

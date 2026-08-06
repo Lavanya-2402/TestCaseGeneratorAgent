@@ -1,3 +1,10 @@
+"""
+Incremental AST-Based Delta Tester Agent.
+
+Parses Git unified diff patches for target commit SHAs, maps changed line ranges to `kb.json` function node
+line boundaries (`line_start`, `line_end`), and executes targeted LLM test generation *only* for modified methods.
+"""
+
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -16,7 +23,15 @@ from agents.tester_agent import build_prompt, append_to_csv, fetch_code_jit
 load_dotenv()
 
 def get_affected_ranges(patch_str):
-    """Parses a unified diff patch and returns a list of (start_line, end_line) ranges in the new file."""
+    """
+    Parses a Git unified diff patch header and returns a list of modified line ranges in the target file.
+
+    Args:
+        patch_str (str): Raw patch string from Git commit diff.
+
+    Returns:
+        list: List of (start_line, end_line) tuple ranges.
+    """
     ranges = []
     if not patch_str:
         return ranges
@@ -30,6 +45,10 @@ def get_affected_ranges(patch_str):
     return ranges
 
 def main():
+    """
+    Main Incremental Agent entry point. Analyzes commit diffs, matches modified functions in kb.json,
+    and runs targeted Gemini LLM test generation for affected code.
+    """
     parser = argparse.ArgumentParser(description="Incremental AST-Based Tester Agent")
     parser.add_argument('--repo', default='', help="GitHub repo owner/name (owner/repo). Defaults to GITHUB_REPO env var.")
     parser.add_argument('--kb', default='', help="Path to the fresh kb.json (after push). Defaults to output/<repo>/kb.json.")
@@ -160,18 +179,21 @@ def main():
                      
              safe_name = node.get('name', 'unnamed').replace("<", "").replace(">", "").replace("/", "_")
              
+             out_dir = Path("output") / repo_name
              for tag, code in java_blocks.items():
-                 folder_path = Path(f"tests/automated/{base_type}/{tag}")
+                 folder_path = out_dir / "automated" / base_type / tag
                  folder_path.mkdir(parents=True, exist_ok=True)
                  java_path = folder_path / f"{safe_name}Test.java"
-                 with open(java_path, "w") as f:
+                 with open(java_path, "w", encoding="utf-8") as f:
                      f.write(code)
                  print(f"  -> Saved {java_path}")
                  
              if csv_rows:
-                 csv_path = f"tests/manual/{base_type}_tests_master.csv"
-                 append_to_csv(csv_path, csv_rows.strip())
+                 csv_path = out_dir / "manual" / f"{base_type}_tests_master.csv"
+                 csv_path.parent.mkdir(parents=True, exist_ok=True)
+                 append_to_csv(str(csv_path), csv_rows.strip())
                  print(f"  -> Appended rows to {csv_path}")
+
                  
              count += 1
              
