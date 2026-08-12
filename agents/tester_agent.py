@@ -769,29 +769,6 @@ def get_applicable_techniques(axis: str, func: dict, ctx: dict, outgoing_calls: 
 
     return techniques
 
-def extract_csv_block(text: str) -> str:
-    """Extracts CSV data rows block from Gemini output ([CSV]...[/CSV] or ```csv ... ```)."""
-    block = ""
-    if "[CSV]" in text and "[/CSV]" in text:
-        block = text.split("[CSV]")[1].split("[/CSV]")[0].strip()
-    elif "```csv" in text:
-        block = text.split("```csv")[1].split("```")[0].strip()
-    elif "```CSV" in text:
-        block = text.split("```CSV")[1].split("```")[0].strip()
-    else:
-        # Fallback: look for blocks with commas that are not java code
-        blocks = text.split("```")
-        csv_lines = []
-        for b in blocks:
-            if b.strip().startswith("java"):
-                continue
-            lines = [l.strip() for l in b.strip().splitlines() if l.strip()]
-            if lines and "," in lines[0] and not lines[0].startswith("import") and not lines[0].startswith("package"):
-                csv_lines.extend(lines)
-        block = "\n".join(csv_lines)
-
-    return exits
-
 def map_exception_triggers(throws_list: list, body: str) -> list[str]:
     if not body or not throws_list: return []
     triggers = []
@@ -801,32 +778,6 @@ def map_exception_triggers(throws_list: list, body: str) -> list[str]:
             if f"throw new {exc_clean}" in line:
                 triggers.append(f"{exc_clean} -> {line.strip()}")
     return triggers
-
-def parse_http_method(annotations: list) -> str:
-    for ann in annotations:
-        ann_l = ann.lower()
-        if "postmapping" in ann_l: return "post"
-        if "getmapping" in ann_l: return "get"
-        if "putmapping" in ann_l: return "put"
-        if "deletemapping" in ann_l: return "delete"
-    return "post"
-
-def parse_base_url(class_annotations: list) -> str:
-    for ann in class_annotations:
-        if "requestmapping" in ann.lower():
-            m = re.search(r'\(["\']([^"\']+)["\']\)', ann)
-            if m: return m.group(1)
-    return ""
-
-def parse_endpoint_url(annotations: list) -> str:
-    for ann in annotations:
-        if any(x in ann.lower() for x in ["mapping"]):
-            m = re.search(r'\(["\']([^"\']+)["\']\)', ann)
-            if m: return m.group(1)
-    return ""
-
-
-
 
 def needs_body(applicable_techniques: list) -> bool:
     return bool(set(applicable_techniques) & CODE_REQUIRED_TECHNIQUES)
