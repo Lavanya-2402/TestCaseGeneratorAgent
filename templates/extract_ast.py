@@ -3,7 +3,7 @@
 Remote Language-Agnostic Tree-sitter AST Extractor Script.
 
 Traverses repository source files, parses Abstract Syntax Trees using tree-sitter bindings for
-Java, Python, JavaScript, TypeScript, Go, and Ruby, and extracts FILE, CLASS, FUNCTION nodes
+Java, JavaScript, TypeScript and extracts FILE, CLASS, FUNCTION nodes
 along with DEFINES and CALLS relational graph edges into `ast.json`.
 """
 
