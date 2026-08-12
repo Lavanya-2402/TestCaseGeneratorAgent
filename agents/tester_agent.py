@@ -1220,7 +1220,8 @@ def main():
 
             prompt_tmpl = TECHNIQUE_PROMPTS[task["axis"]][technique]
             prompt = prompt_tmpl.format(**task["context"])
-            full_prompt = f"{SYSTEM_PROMPT}\n\n{prompt}"
+            sys_prompt = SELENIUM_SYSTEM_PROMPT if task["axis"] == "selenium_ui" else SYSTEM_PROMPT
+            full_prompt = f"{sys_prompt}\n\n{prompt}"
 
             print(f"  -> Generating {technique} [{cur_model_name}] ({rel_file})...", flush=True)
 
