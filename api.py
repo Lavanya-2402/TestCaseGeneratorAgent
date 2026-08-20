@@ -19,6 +19,10 @@ import json
 import shutil
 from datetime import datetime
 from pathlib import Path
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 from fastapi import FastAPI, BackgroundTasks, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse, HTMLResponse
@@ -375,10 +379,16 @@ async def download_tests(repo: str = ""):
     if not target_dir or not target_dir.exists():
         raise HTTPException(status_code=404, detail="No test artifacts found. Please run the pipeline first.")
         
+    test_dir = target_dir / "test"
+    if not test_dir.exists() and not any(target_dir.iterdir()):
+        raise HTTPException(status_code=404, detail="No test artifacts found. Please run the pipeline first.")
+        
+    source_dir = test_dir if test_dir.exists() else target_dir
+
     # Create zip archive in memory
     memory_file = io.BytesIO()
     with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        for root, dirs, files in os.walk(target_dir):
+        for root, dirs, files in os.walk(source_dir):
             for file in files:
                 file_path = os.path.join(root, file)
                 arcname = os.path.relpath(file_path, target_dir)
